@@ -1,14 +1,10 @@
+import {clickOnAstroid, clickIncremental} from './clickManager';
+import {renderOreDisplayText, updateOreText, checkIncrementors, checkTimeSinceLastOnline} from './inventoryManagment';
+
 const config = {
   type: Phaser.AUTO,
-  width: 800,
-  height: 600,
-  physics: {
-    default: 'arcade',
-    arcade: {
-        gravity: { y: 300 },
-        debug: false
-    }
-  },
+  width: window.innerWidth,
+  height: window.innerHeight,
   scene: {
       preload,
       create,
@@ -16,115 +12,128 @@ const config = {
   }
 };
 
+const astroids = {
+    copper: {
+        name: 'copper',
+        x: config.width / 4,
+        y: 500
+    },
+    iron: {
+        name: 'iron',
+        x: config.width / 1.5,
+        y: 500
+    },
+    silver: {
+        name: 'silver',
+        x: config.width / 1.5,
+        y: 200 
+    },
+    gold: {
+        name: 'gold',
+        x: config.width / 4,
+        y: 200
+    }
+}
+
 var game = new Phaser.Game(config);
-var score = 0;
-var scoreText;
-var cursors;
-var player;
-var winOrLose;
+var minerals = 0;
 
 function preload ()
 {
-  this.load.image('sky', 'assets/exampleBackground.png');
-  this.load.image('platform', 'assets/platform.png');
-  this.load.image('star', 'assets/star.png');
-  this.load.spritesheet('dude', 
-        'assets/dude.png',
-        { frameWidth: 32, frameHeight: 48 }
-    );
+    
+    let progressBar = this.add.graphics();
+    let progressBox = this.add.graphics();
+    
+    progressBox.fillStyle(0x222222, 0.8);
+    progressBox.fillRect((window.innerWidth / 2) - 120, window.innerHeight / 2, 320, 30);
+
+    var loadingText = this.make.text({
+        x: config.width / 2,
+        y: config.height / 2 + 15,
+        text: 'Loading...',
+        style: {
+            font: '20px monospace',
+            fill: '#47D304'
+        }
+    });
+    loadingText.setOrigin(0.5, 0.5);
+
+    this.load.on('progress', function (value) {
+        console.log(value);
+        progressBar.clear();
+        progressBar.fillStyle(0x47D304, 1);
+        progressBar.fillRect((config.width / 2) - 120, config.height / 2, 320 * value, 30);
+    });
+
+    this.load.on('fileprogress', function (value) {
+        console.log(value);
+    });
+
+    this.load.on('complete', function (value) {
+        console.log(value);
+        progressBar.destroy();
+        progressBox.destroy();
+        loadingText.destroy();
+    });
+
+    this.load.image('copper', 'assets/copper.png');
+    this.load.image('iron', 'assets/iron.png');
+    this.load.image('silver', 'assets/silver.png');
+    this.load.image('gold', 'assets/gold.png');
+    this.load.image('add', 'assets/addIcon.png');
+    this.load.image('background', 'assets/background.png');
+
 }
 
 function create ()
 {
-    this.add.image(400, 300, 'sky');
+    let bg = this.add.sprite(config.width / 2, config.height / 2, 'background');
+    bg.setDisplaySize(config.width, config.height)
 
-    const platforms = this.physics.add.staticGroup();
+    renderOreDisplayText(this);
 
-    platforms.create(400, 586, 'platform').setScale(2).refreshBody();
-
-    platforms.create(600, 400, 'platform');
-    platforms.create(50, 250, 'platform');
-    platforms.create(750, 220, 'platform');
-
-    player = this.physics.add.sprite(100, 450, 'dude');
-
-    player.setBounce(0);
-    player.setCollideWorldBounds(true);
-
-    // this.anims.create({
-    //     key: 'left',
-    //     frames: this.anims.generateFrameNumbers('dude', { start: 0, end: 3 }),
-    //     frameRate: 10,
-    //     repeat: -1
-    // });
-
-    // this.anims.create({
-    //     key: 'turn',
-    //     frames: [ { key: 'dude', frame: 4 } ],
-    //     frameRate: 20
-    // });
-
-    // this.anims.create({
-    //     key: 'right',
-    //     frames: this.anims.generateFrameNumbers('dude', { start: 5, end: 8 }),
-    //     frameRate: 10,
-    //     repeat: -1
-    // });
-    this.physics.add.collider(player, platforms);
-    
-    cursors = this.input.keyboard.createCursorKeys();
-
-    const stars = this.physics.add.group({
-      key: 'star',
-      repeat: 11,
-      setXY: { x: 12, y: 0, stepX: 70 }
-  });
-  
-  stars.children.iterate(function (child) {
-  
-      child.setBounceY(Phaser.Math.FloatBetween(0.4, 0.8));
-  
-  });
-  this.physics.add.collider(stars, platforms);
-  this.physics.add.overlap(player, stars, collectStar, null, this);
-
-  function collectStar (player, star)
-  {
-      star.disableBody(true, true);
-  
-      score += 10;
-      scoreText.setText('Score: ' + score);
-      if(scoreText === 30){
-        winOrLose.setText('You win');
+    const createNewAstroid = (astroid) => {
+        let newAstroid = this.add.sprite(astroid.x, astroid.y, astroid.name).setInteractive({ pixelPerfect: true });
+        let tween = this.tweens.add({
+            targets: newAstroid,
+            y: astroid.y + 10,
+            ease: 'Sine.easeInOut',
+            duration: 1500,
+            yoyo: true,
+            repeat: -1
+        })
+        return newAstroid;
     }
-}
-    winOrLose = this.add.text(32, 32, '', {fontSize: '32px', fill: '#000'})
-    scoreText = this.add.text(16, 16, 'score: 0', { fontSize: '32px', fill: '#000' });
+
+    const createIncrementor = (x, y) => {
+        return this.add.sprite(x,y, 'add').setInteractive();
+    }
+
+
+    clickOnAstroid(createNewAstroid(astroids.copper), astroids.copper.name);
+    clickIncremental(createIncrementor((config.width / 4) + 180 ,550), 'copper', this);
+
+    clickOnAstroid(createNewAstroid(astroids.iron),astroids.iron.name);
+    clickIncremental(createIncrementor((config.width / 1.5) + 180, 550), 'iron', this);
+
+    clickOnAstroid(createNewAstroid(astroids.silver), astroids.silver.name);
+    clickIncremental(createIncrementor((config.width / 1.5) + 180, 250), 'silver', this);
+
+    clickOnAstroid(createNewAstroid(astroids.gold), astroids.gold.name);
+    clickIncremental(createIncrementor((config.width / 4) + 180, 250), 'gold', this);
+
+
+    let timedEvent = this.time.addEvent({
+        delay: 1000,
+        callback: checkIncrementors,
+        callbackScope: this,
+        loop: true
+    })
+
+    checkTimeSinceLastOnline()
 }
 
 function update ()
 {
-    if (cursors.left.isDown)
-    {
-        player.setVelocityX(-160);
-
-        // player.anims.play('left', true);
-    }
-    else if (cursors.right.isDown)
-    {
-        player.setVelocityX(160);
-
-        // player.anims.play('right', true);
-    }
-    else
-    {
-        player.setVelocityX(0);
-
-        // player.anims.play('turn');
-    }
-
-    if (cursors.up.isDown && player.body.touching.down)
-    {
-        player.setVelocityY(-330);
-    }
+    updateOreText();
 }
